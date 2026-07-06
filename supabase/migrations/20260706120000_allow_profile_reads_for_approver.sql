@@ -21,4 +21,10 @@ TO authenticated
 USING (
   auth.uid() = id
   OR public.get_user_role() IN ('approver', 'collector')
+  OR EXISTS (
+    SELECT 1
+    FROM profiles AS current_profile
+    WHERE current_profile.id = auth.uid()
+      AND current_profile.role IN ('approver', 'collector')
+  )
 );

@@ -17,6 +17,7 @@ export function ApproverDashboard() {
   const [requests, setRequests] = useState<RelocationRequest[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
   const [collectors, setCollectors] = useState<CollectorWithLocation[]>([]);
+  const [taxpayers, setTaxpayers] = useState<Profile[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
@@ -97,6 +98,7 @@ export function ApproverDashboard() {
     if (profilesRes.data) {
       const profileData = profilesRes.data as Profile[];
       setUsers(profileData);
+      setTaxpayers(profileData.filter(profile => profile.role === 'taxpayer'));
     }
 
     if (locationsRes.data) {
@@ -620,6 +622,7 @@ export function ApproverDashboard() {
                     user.role?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                     user.phone?.includes(searchTerm)
                   ).map(user => (
+                  {users.map(user => (
                     <tr key={user.id} className="text-sm text-slate-700">
                       <td className="px-4 py-4">
                         <div className="font-semibold text-slate-800">{user.full_name}</div>
