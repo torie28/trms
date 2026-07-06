@@ -8,6 +8,7 @@ export interface Profile {
   phone: string | null;
   role: UserRole;
   location_id: string | null;
+  is_active?: boolean;
   created_at: string;
 }
 

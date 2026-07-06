@@ -3,9 +3,9 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { RelocationRequest, TaxpayerFinance, BusinessType, Location, Profile } from '../types';
-import { MapPin, CheckCircle, Clock, User, DollarSign, Loader2, Search, Eye, FileText, Settings, Building, Users } from 'lucide-react';
+import { MapPin, CheckCircle, Clock, User, DollarSign, Loader2, Search, Eye, FileText, Users } from 'lucide-react';
 
-type View = 'pending' | 'all' | 'settings';
+type View = 'pending' | 'all';
 
 interface RequestWithFinance extends RelocationRequest {
   finances?: TaxpayerFinance[];
@@ -21,7 +21,6 @@ export function CollectorDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedRequest, setExpandedRequest] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<RequestWithFinance | null>(null);
-  const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [debtAmount, setDebtAmount] = useState('');
   const [businessTypes, setBusinessTypes] = useState<BusinessType[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState('');
@@ -31,16 +30,24 @@ export function CollectorDashboard() {
     loadData();
   }, [profile]);
 
+  function enrichRequestsWithProfiles(requests: RelocationRequest[], profiles: Profile[]) {
+    const profileMap = new Map(profiles.map(profile => [profile.id, profile]));
+
+    return requests.map(request => ({
+      ...request,
+      taxpayer: request.taxpayer ?? profileMap.get(request.taxpayer_id),
+    }));
+  }
+
   async function loadData() {
     if (!profile) return;
     setLoading(true);
 
-    const [requestsRes, businessTypesRes, locationsRes] = await Promise.all([
+    const [requestsRes, businessTypesRes, locationsRes, profilesRes] = await Promise.all([
       supabase
         .from('relocation_requests')
         .select(`
           *,
-          taxpayer:profiles!relocation_requests_taxpayer_id_fkey(id, full_name, phone, role),
           current_location:locations!relocation_requests_current_location_id_fkey(*),
           new_location:locations!relocation_requests_new_location_id_fkey(*),
           business_type:business_types(*),
@@ -50,6 +57,7 @@ export function CollectorDashboard() {
         .order('created_at', { ascending: false }),
       supabase.from('business_types').select('*'),
       supabase.from('locations').select('*').order('name'),
+      supabase.from('profiles').select('*').order('full_name'),
     ]);
 
     if (requestsRes.data) {
@@ -62,7 +70,12 @@ export function CollectorDashboard() {
           return { ...req, finances: finances || [] };
         })
       );
-      setRequests(requestsWithFinances);
+
+      if (profilesRes.data) {
+        setRequests(enrichRequestsWithProfiles(requestsWithFinances, profilesRes.data as Profile[]) as RequestWithFinance[]);
+      } else {
+        setRequests(requestsWithFinances as RequestWithFinance[]);
+      }
     }
 
     if (businessTypesRes.data) {
@@ -94,10 +107,10 @@ export function CollectorDashboard() {
   }
 
   async function handleVerify(requestId: string) {
-    if (debtAmount === '' || isNaN(parseFloat(debtAmount))) {
-      alert('Please enter a valid debt amount');
-      return;
-    }
+    const request = requests.find(r => r.id === requestId);
+    if (!request) return;
+
+    const debtValue = request.finances?.[0]?.outstanding_debt ?? 0;
 
     setProcessing(requestId);
     try {
@@ -112,28 +125,24 @@ export function CollectorDashboard() {
 
       if (updateError) throw updateError;
 
-      const request = requests.find(r => r.id === requestId);
-      if (request) {
-        const existingFinance = request.finances?.[0];
-        if (existingFinance) {
-          await supabase
-            .from('taxpayer_finances')
-            .update({
-              location_id: request.new_location_id,
-              outstanding_debt: parseFloat(debtAmount),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingFinance.id);
-        } else {
-          await supabase.from('taxpayer_finances').insert({
-            user_id: request.taxpayer_id,
+      const existingFinance = request.finances?.[0];
+      if (existingFinance) {
+        await supabase
+          .from('taxpayer_finances')
+          .update({
             location_id: request.new_location_id,
-            outstanding_debt: parseFloat(debtAmount),
-          });
-        }
+            outstanding_debt: debtValue,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingFinance.id);
+      } else {
+        await supabase.from('taxpayer_finances').insert({
+          user_id: request.taxpayer_id,
+          location_id: request.new_location_id,
+          outstanding_debt: debtValue,
+        });
       }
 
-      setShowVerifyModal(false);
       setDebtAmount('');
       setSelectedRequest(null);
       loadData();
@@ -267,70 +276,9 @@ export function CollectorDashboard() {
           <FileText className="w-4 h-4" />
           All Requests
         </button>
-        <button
-          onClick={() => setView('settings')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            view === 'settings'
-              ? 'bg-[#FFE600] text-slate-950 font-bold shadow-sm'
-              : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100'
-          }`}
-        >
-          <Settings className="w-4 h-4" />
-          Settings
-        </button>
       </div>
 
-      {view === 'settings' && (
-        <div className="max-w-2xl">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-            <h3 className="text-lg font-semibold text-slate-800 mb-6 flex items-center gap-2">
-              <Building className="w-5 h-5 text-[#FFE600]" />
-              Area of Operation
-            </h3>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Select Your Assigned Tax Collection Location
-              </label>
-              <select
-                value={selectedLocationId}
-                onChange={(e) => setSelectedLocationId(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#FFE600] focus:border-[#FFE600] outline-none bg-white"
-              >
-                <option value="">Select a location...</option>
-                {locations.map(loc => (
-                  <option key={loc.id} value={loc.id}>{loc.name} - {loc.ward}, {loc.region}</option>
-                ))}
-              </select>
-            </div>
-
-            {profile?.location_id && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-6">
-                <div className="flex items-center gap-2 text-slate-700 mb-1">
-                  <MapPin className="w-4 h-4" />
-                  <span className="font-medium">Current Assignment</span>
-                </div>
-                <p className="text-slate-800">
-                  {locations.find(l => l.id === profile.location_id)?.name || 'Not assigned'}
-                </p>
-              </div>
-            )}
-
-            <button
-              onClick={handleUpdateLocation}
-              disabled={savingLocation || !selectedLocationId || selectedLocationId === profile?.location_id}
-              className="w-full py-3 px-4 bg-[#FFE600] text-slate-950 font-bold rounded-lg hover:bg-[#ebd500] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {savingLocation && <Loader2 className="w-4 h-4 animate-spin" />}
-              Update Area of Operation
-            </button>
-          </div>
-        </div>
-      )}
-
-      {view !== 'settings' && (
-        <>
-          <div className="relative max-w-md mb-6">
+      <div className="relative max-w-md mb-6">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
@@ -375,17 +323,28 @@ export function CollectorDashboard() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
                       <div className="flex items-start gap-2">
                         <User className="w-4 h-4 text-slate-400 mt-0.5" />
                         <div>
                           <p className="text-xs text-slate-500">Taxpayer</p>
-                          <p className="font-medium">{request.taxpayer?.full_name}</p>
+                          <p className="font-medium">{request.taxpayer?.full_name || 'Unknown taxpayer'}</p>
+                          <p className="text-xs text-slate-400">{request.taxpayer?.phone || 'No phone provided'}</p>
                         </div>
                       </div>
                       <div>
                         <p className="text-xs text-slate-500">From Location</p>
                         <p className="font-medium">{request.current_location?.name}</p>
+                        {request.current_location?.region && (
+                          <p className="text-xs text-slate-400">{request.current_location.region}</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">To Location</p>
+                        <p className="font-medium">{request.new_location?.name}</p>
+                        {request.new_location?.region && (
+                          <p className="text-xs text-slate-400">{request.new_location.region}</p>
+                        )}
                       </div>
                       <div>
                         <p className="text-xs text-slate-500">Business Type</p>
@@ -405,11 +364,11 @@ export function CollectorDashboard() {
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span className="text-slate-500">Name</span>
-                              <span className="font-medium">{request.taxpayer?.full_name}</span>
+                              <span className="font-medium">{request.taxpayer?.full_name || 'Unknown taxpayer'}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-slate-500">Phone</span>
-                              <span className="font-medium">{request.taxpayer?.phone || 'N/A'}</span>
+                              <span className="font-medium">{request.taxpayer?.phone || 'No phone provided'}</span>
                             </div>
                           </div>
                         </div>
@@ -423,7 +382,7 @@ export function CollectorDashboard() {
                             <div className="flex justify-between">
                               <span className="text-slate-500">Outstanding Debt</span>
                               <span className="font-bold text-red-600">
-                                {(request.finances?.[0]?.outstanding_debt || 0).toLocaleString()} TZS
+                                {(request.finances?.[0]?.outstanding_debt ?? 0).toLocaleString()} TZS
                               </span>
                             </div>
                           </div>
@@ -432,13 +391,11 @@ export function CollectorDashboard() {
 
                       {request.status === 'AWAITING_VERIFICATION' && (
                         <button
-                          onClick={() => {
-                            setSelectedRequest(request);
-                            setDebtAmount((request.finances?.[0]?.outstanding_debt || 0).toString());
-                            setShowVerifyModal(true);
-                          }}
-                          className="w-full py-3 px-4 bg-[#FFE600] text-slate-950 font-bold rounded-lg hover:bg-[#ebd500] transition-colors flex items-center justify-center gap-2"
+                          onClick={() => handleVerify(request.id)}
+                          disabled={processing === request.id}
+                          className="w-full py-3 px-4 bg-[#FFE600] text-slate-950 font-bold rounded-lg hover:bg-[#ebd500] transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                         >
+                          {processing === request.id && <Loader2 className="w-5 h-5 animate-spin" />}
                           <CheckCircle className="w-5 h-5" />
                           Verify & Receive Taxpayer
                         </button>
@@ -449,39 +406,6 @@ export function CollectorDashboard() {
               ))
             )}
           </div>
-        </>
-      )}
-
-      {showVerifyModal && selectedRequest && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4">Verify & Receive Taxpayer</h3>
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-700 mb-2">Debt Amount (TZS)</label>
-              <input
-                type="number"
-                value={debtAmount}
-                onChange={(e) => setDebtAmount(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#FFE600] focus:border-[#FFE600] outline-none"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowVerifyModal(false)}
-                className="flex-1 py-2 px-4 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleVerify(selectedRequest.id)}
-                className="flex-1 py-2 px-4 bg-[#FFE600] text-slate-950 font-bold rounded-lg hover:bg-[#ebd500]"
-              >
-                Complete Verification
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 }

@@ -5,6 +5,7 @@ import { AuthPage } from './pages/AuthPage';
 import { TaxpayerDashboard } from './pages/TaxpayerDashboard';
 import { ApproverDashboard } from './pages/ApproverDashboard';
 import { CollectorDashboard } from './pages/CollectorDashboard';
+import ProfilePage from './pages/ProfilePage';
 import { Loader2 } from 'lucide-react';
 
 function App() {
@@ -49,6 +50,12 @@ function App() {
   }
 
   // 3. User is logged in, serve the correct dashboard based on role
+  // Handle simple profile route: /profile/:id
+  if (currentPath.startsWith('/profile/')) {
+    const id = currentPath.replace('/profile/', '');
+    return <ProfilePage id={id} />;
+  }
+
   switch (profile.role) {
     case 'taxpayer':
       return <TaxpayerDashboard />;

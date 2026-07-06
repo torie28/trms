@@ -60,6 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role: string,
     locationId?: string
   ) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const currentSession = sessionData.session;
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -83,6 +86,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (profileError) throw profileError;
+    }
+
+    if (currentSession?.access_token && currentSession?.refresh_token) {
+      const { error: restoreError } = await supabase.auth.setSession({
+        access_token: currentSession.access_token,
+        refresh_token: currentSession.refresh_token,
+      });
+
+      if (restoreError) throw restoreError;
     }
   }
 
