@@ -1,3 +1,17 @@
+CREATE OR REPLACE FUNCTION public.get_user_role()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  user_role text;
+BEGIN
+  SELECT role INTO user_role FROM profiles WHERE id = auth.uid();
+  RETURN user_role;
+END;
+$$;
+
 -- Allow approvers and collectors to read profile details needed for request review
 DROP POLICY IF EXISTS "select_own_profile" ON profiles;
 
@@ -6,6 +20,7 @@ FOR SELECT
 TO authenticated
 USING (
   auth.uid() = id
+  OR public.get_user_role() IN ('approver', 'collector')
   OR EXISTS (
     SELECT 1
     FROM profiles AS current_profile

@@ -617,6 +617,11 @@ export function ApproverDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
+                  {users.filter(user => 
+                    user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    user.role?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    user.phone?.includes(searchTerm)
+                  ).map(user => (
                   {users.map(user => (
                     <tr key={user.id} className="text-sm text-slate-700">
                       <td className="px-4 py-4">
